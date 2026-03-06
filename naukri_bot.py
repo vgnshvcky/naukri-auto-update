@@ -5,8 +5,8 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
-import time
 import os
+import time
 
 EMAIL = "vigneshvcky2000@gmail.com"
 PASSWORD = "Vignesh2@"
@@ -30,35 +30,38 @@ try:
     print("Opening Naukri login page...")
     driver.get("https://www.naukri.com/nlogin/login")
 
-    # Wait for email field
-    print("Waiting for email field...")
+    print("Waiting for email input...")
     email_box = wait.until(
-        EC.visibility_of_element_located((By.XPATH, "//input[@placeholder='Enter your active Email ID / Username']"))
+        EC.visibility_of_element_located(
+            (By.XPATH, "//input[@placeholder='Enter Email ID / Username']")
+        )
     )
 
-    # Wait for password field
+    print("Waiting for password input...")
     password_box = wait.until(
-        EC.visibility_of_element_located((By.XPATH, "//input[@placeholder='Enter your password']"))
+        EC.visibility_of_element_located(
+            (By.XPATH, "//input[@placeholder='Enter Password']")
+        )
     )
 
     print("Entering credentials...")
     email_box.send_keys(EMAIL)
     password_box.send_keys(PASSWORD)
 
-    # Click login
     login_button = wait.until(
-        EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Login')]"))
+        EC.element_to_be_clickable(
+            (By.XPATH, "//button[normalize-space()='Login']")
+        )
     )
+
     login_button.click()
 
     print("Login submitted...")
     time.sleep(12)
 
-    # Go to profile
     print("Opening profile page...")
     driver.get("https://www.naukri.com/mnjuser/profile")
 
-    # Wait for upload button
     print("Waiting for resume upload field...")
     upload = wait.until(
         EC.presence_of_element_located((By.XPATH, "//input[@type='file']"))
