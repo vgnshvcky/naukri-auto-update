@@ -1,28 +1,44 @@
-name: Naukri Resume Auto Update
+name: Naukri Auto Resume Update
 
 on:
   schedule:
-    - cron: '45 2 * * *'
-    - cron: '30 10 * * *'
-  workflow_dispatch:
+    - cron: "0 6 * * *"   # Every day at 6:00 AM UTC (11:30 AM IST)
+  workflow_dispatch:        # Manual trigger from GitHub Actions UI
 
 jobs:
-  run-bot:
+  update-resume:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-    - name: Install dependencies
-      run: |
-        pip install selenium webdriver-manager
+      - name: Install Python dependencies
+        run: pip install selenium webdriver-manager
 
-    - name: Run automation
-      run: |
-        python naukri_bot.py
+      - name: Install Google Chrome
+        run: |
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" \
+            >> /etc/apt/sources.list.d/google-chrome.list'
+          sudo apt-get update -q
+          sudo apt-get install -y google-chrome-stable
+
+      - name: Run Naukri bot
+        env:
+          NAUKRI_EMAIL:    ${{ secrets.NAUKRI_EMAIL }}
+          NAUKRI_PASSWORD: ${{ secrets.NAUKRI_PASSWORD }}
+        run: python naukri_bot.py
+
+      - name: Upload debug screenshots
+        if: always()          # Upload even if the bot fails
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots
+          path: "*.png"
+          retention-days: 5
