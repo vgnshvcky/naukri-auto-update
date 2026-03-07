@@ -8,20 +8,12 @@ from webdriver_manager.chrome import ChromeDriverManager
 import os
 import time
 
-# ── Credentials (must be set as GitHub Secrets) ───────────────────────────────
-EMAIL    = os.environ.get("NAUKRI_EMAIL", "").strip()
-PASSWORD = os.environ.get("NAUKRI_PASSWORD", "").strip()
+# ── Credentials ───────────────────────────────────────────────────────────────
+EMAIL       = "vigneshvcky2000@gmail.com"
+PASSWORD    = "Vignesh2@"
 RESUME_PATH = os.path.abspath("vignesh_resume.pdf")
 
-# Guard: fail immediately if secrets are missing
-if not EMAIL or not PASSWORD:
-    raise EnvironmentError(
-        "❌ NAUKRI_EMAIL or NAUKRI_PASSWORD is empty!\n"
-        "Go to GitHub repo → Settings → Secrets and variables → Actions\n"
-        "and add both secrets before running this workflow."
-    )
-
-print(f"Using email: {EMAIL[:4]}****{EMAIL[EMAIL.index('@'):]}")
+print(f"Using email: {EMAIL}")
 
 # ── Chrome setup ──────────────────────────────────────────────────────────────
 chrome_options = Options()
@@ -76,7 +68,6 @@ try:
     password_box.send_keys(PASSWORD)
     time.sleep(1)
 
-    # Screenshot before clicking login (verify fields are filled)
     driver.save_screenshot("01b_credentials_entered.png")
 
     print("Clicking Login...")
@@ -88,12 +79,11 @@ try:
     time.sleep(15)
     driver.save_screenshot("02_after_login.png")
 
-    # ── STEP 2: VERIFY LOGIN SUCCESS ─────────────────────────────────────────
+    # ── STEP 2: VERIFY LOGIN SUCCESS ──────────────────────────────────────────
     current_url = driver.current_url
     print(f"URL after login: {current_url}")
 
     if "nlogin/login" in current_url:
-        # Still on login page — check for error messages
         try:
             err = driver.find_element(By.XPATH, "//*[contains(@class,'error') or contains(@class,'alert')]")
             print(f"Login error on page: {err.text}")
@@ -133,12 +123,9 @@ try:
 
     # ── STEP 5: UPLOAD RESUME ─────────────────────────────────────────────────
     print("Looking for file input on profile page...")
-
-    # Scroll down to make sure file inputs are in DOM
     driver.execute_script("window.scrollTo(0, 500);")
     time.sleep(2)
 
-    # Find ALL file inputs (including hidden ones)
     file_inputs = driver.find_elements(By.XPATH, "//input[@type='file']")
     print(f"Found {len(file_inputs)} file input(s)")
 
@@ -146,12 +133,10 @@ try:
         driver.save_screenshot("03_no_file_input.png")
         raise Exception(
             "❌ No file input found on profile page.\n"
-            "You may not be logged in properly, or Naukri changed their page structure.\n"
             "Check screenshot 03_no_file_input.png"
         )
 
     upload = file_inputs[0]
-    # Make hidden input accessible
     driver.execute_script("arguments[0].style.display    = 'block';",   upload)
     driver.execute_script("arguments[0].style.visibility = 'visible';", upload)
     driver.execute_script("arguments[0].style.opacity    = '1';",       upload)
@@ -184,7 +169,6 @@ try:
     # ── STEP 7: LOGOUT ────────────────────────────────────────────────────────
     print("Logging out...")
     try:
-        # Try clicking the hamburger/menu icon in top-right
         menu = wait.until(
             EC.element_to_be_clickable(
                 (By.XPATH,
