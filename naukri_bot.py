@@ -5,13 +5,17 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
+import imaplib
+import email
+import re
 import os
 import time
 
 # ── Credentials ───────────────────────────────────────────────────────────────
-EMAIL       = "vigneshvcky2000@gmail.com"
-PASSWORD    = "Vignesh2@"
-RESUME_PATH = os.path.abspath("vignesh_resume.pdf")
+EMAIL              = os.environ.get("NAUKRI_EMAIL", "vigneshvcky2000@gmail.com")
+PASSWORD           = os.environ.get("NAUKRI_PASSWORD", "Vignesh2@")
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "igrwxtjyyqoddrnt")
+RESUME_PATH        = os.path.abspath("vignesh_resume.pdf")
 
 # ── Step tracker ──────────────────────────────────────────────────────────────
 def step(number, title):
@@ -28,6 +32,50 @@ def fail(message, screenshot_path, driver):
     driver.save_screenshot(screenshot_path)
     print(f"  ❌ FAILED — {message}")
     print(f"  📸 Screenshot saved: {screenshot_path}")
+
+# ── OTP fetcher from Gmail ────────────────────────────────────────────────────
+def fetch_otp_from_gmail(gmail_user, gmail_app_password, retries=6, delay=10):
+    print("  📧 Connecting to Gmail to fetch OTP...")
+    for attempt in range(retries):
+        try:
+            mail = imaplib.IMAP4_SSL("imap.gmail.com")
+            mail.login(gmail_user, gmail_app_password)
+            mail.select("inbox")
+
+            # Search for latest Naukri OTP email
+            status, messages = mail.search(None, '(FROM "naukri")')
+            if status == "OK" and messages[0]:
+                email_ids = messages[0].split()
+                # Check last 3 emails for OTP
+                for eid in reversed(email_ids[-3:]):
+                    status2, msg_data = mail.fetch(eid, "(RFC822)")
+                    raw_email = msg_data[0][1]
+                    msg = email.message_from_bytes(raw_email)
+
+                    body = ""
+                    if msg.is_multipart():
+                        for part in msg.walk():
+                            if part.get_content_type() == "text/plain":
+                                body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
+                                break
+                    else:
+                        body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
+
+                    otp_match = re.search(r'\b(\d{6})\b', body)
+                    if otp_match:
+                        otp = otp_match.group(1)
+                        print(f"  ✅ OTP found: {otp}")
+                        mail.logout()
+                        return otp
+
+            mail.logout()
+        except Exception as e:
+            print(f"  ⚠️  Gmail attempt {attempt+1}/{retries} failed: {e}")
+
+        print(f"  ⏳ Retrying in {delay}s... ({attempt+1}/{retries})")
+        time.sleep(delay)
+
+    return None
 
 # ── Chrome setup ──────────────────────────────────────────────────────────────
 step(0, "Starting Chrome Browser")
@@ -64,7 +112,6 @@ try:
     driver.get("https://www.naukri.com/nlogin/login")
     time.sleep(5)
 
-    # Confirm page loaded
     if "nlogin/login" in driver.current_url or "naukri.com" in driver.current_url:
         done("Login page loaded", "step1_login_page_loaded.png", driver)
     else:
@@ -124,27 +171,103 @@ try:
         raise
 
     # ══════════════════════════════════════════════════════════════════════════
-    # STEP 5 — VERIFY LOGIN SUCCESS
+    # STEP 5 — CHECK: OTP SCREEN OR LOGIN SUCCESS?
     # ══════════════════════════════════════════════════════════════════════════
-    step(5, "Verifying Login Success")
-    time.sleep(15)
+    step(5, "Checking Login Result")
+    time.sleep(10)
+    driver.save_screenshot("step5_check.png")
+    print(f"  Current URL: {driver.current_url}")
 
+    # Detect OTP screen
+    otp_screen = False
+    try:
+        driver.find_element(
+            By.XPATH, "//input[@type='tel'] | //*[contains(text(),'OTP')]"
+        )
+        otp_screen = True
+    except Exception:
+        pass
+
+    if otp_screen:
+        print("  ⚠️  OTP screen detected!")
+        driver.save_screenshot("step5_otp_screen_detected.png")
+        print("  📸 Screenshot saved: step5_otp_screen_detected.png")
+
+        # ── STEP 5a — FETCH OTP FROM GMAIL ───────────────────────────────────
+        step("5a", "Fetching OTP from Gmail")
+        if not GMAIL_APP_PASSWORD:
+            fail(
+                "GMAIL_APP_PASSWORD secret is not set in GitHub!",
+                "step5a_FAILED_no_secret.png", driver
+            )
+            raise Exception(
+                "Add GMAIL_APP_PASSWORD to GitHub Secrets:\n"
+                "Settings → Secrets and variables → Actions → New repository secret"
+            )
+
+        time.sleep(15)  # Wait for OTP email to arrive
+        otp = fetch_otp_from_gmail(EMAIL, GMAIL_APP_PASSWORD)
+
+        if not otp:
+            fail("Could not fetch OTP from Gmail", "step5a_FAILED_no_otp.png", driver)
+            raise Exception("OTP not found in Gmail — check inbox manually")
+
+        done(f"OTP fetched from Gmail: {otp}", "step5a_otp_fetched.png", driver)
+
+        # ── STEP 5b — ENTER OTP ──────────────────────────────────────────────
+        step("5b", "Entering OTP on Naukri")
+        otp_inputs = driver.find_elements(
+            By.XPATH, "//input[@type='tel' or @maxlength='1']"
+        )
+        print(f"  Found {len(otp_inputs)} OTP input box(es)")
+
+        if len(otp_inputs) >= 6:
+            # 6 separate boxes
+            for i, digit in enumerate(otp[:6]):
+                otp_inputs[i].click()
+                otp_inputs[i].send_keys(digit)
+                time.sleep(0.3)
+        elif len(otp_inputs) == 1:
+            # Single input box
+            otp_inputs[0].click()
+            otp_inputs[0].send_keys(otp)
+        else:
+            fail("Unexpected OTP input structure", "step5b_FAILED_otp_input.png", driver)
+            raise Exception("Could not find OTP input boxes")
+
+        time.sleep(2)
+        driver.save_screenshot("step5b_otp_entered.png")
+        print("  📸 Screenshot saved: step5b_otp_entered.png")
+
+        # ── STEP 5c — CLICK VERIFY ───────────────────────────────────────────
+        step("5c", "Clicking Verify Button")
+        verify_btn = wait.until(
+            EC.element_to_be_clickable(
+                (By.XPATH, "//button[normalize-space()='Verify']")
+            )
+        )
+        verify_btn.click()
+        time.sleep(10)
+        done("OTP verified — clicked Verify", "step5c_otp_verified.png", driver)
+
+    # ── FINAL LOGIN CHECK ─────────────────────────────────────────────────────
+    step(5, "Verifying Login Success")
+    time.sleep(5)
     current_url = driver.current_url
     print(f"  Current URL: {current_url}")
 
     if "nlogin/login" in current_url:
-        # Check for error text on page
         try:
             err = driver.find_element(
                 By.XPATH, "//*[contains(@class,'error') or contains(@class,'alert')]"
             )
-            print(f"  ⚠️  Error message on page: {err.text}")
+            print(f"  ⚠️  Error on page: {err.text}")
         except Exception:
             pass
-        fail("Still on login page — login unsuccessful", "step5_FAILED_still_on_login.png", driver)
+        fail("Still on login page", "step5_FAILED_still_on_login.png", driver)
         raise Exception("Login failed — check step5_FAILED_still_on_login.png")
-    else:
-        done(f"Login successful! Redirected to: {current_url}", "step5_login_success.png", driver)
+
+    done(f"Login successful! URL: {current_url}", "step5_login_success.png", driver)
 
     # ══════════════════════════════════════════════════════════════════════════
     # STEP 6 — NAVIGATE TO PROFILE PAGE
@@ -206,7 +329,7 @@ try:
     step(9, "Uploading Resume")
     upload.send_keys(RESUME_PATH)
     time.sleep(6)
-    done(f"Resume uploaded: {RESUME_PATH}", "step9_resume_uploaded.png", driver)
+    done(f"Resume uploaded: {os.path.basename(RESUME_PATH)}", "step9_resume_uploaded.png", driver)
 
     # ══════════════════════════════════════════════════════════════════════════
     # STEP 10 — CONFIRM / SAVE UPLOAD
@@ -225,7 +348,7 @@ try:
         time.sleep(5)
         done("Save/confirm button clicked", "step10_save_clicked.png", driver)
     except Exception:
-        done("No save button appeared — upload auto-submitted", "step10_auto_submitted.png", driver)
+        done("No save button — upload auto-submitted", "step10_auto_submitted.png", driver)
 
     # ══════════════════════════════════════════════════════════════════════════
     # STEP 11 — LOGOUT
@@ -269,9 +392,10 @@ try:
     # ══════════════════════════════════════════════════════════════════════════
     print(f"\n{'='*50}")
     print("  🎉 ALL STEPS COMPLETED SUCCESSFULLY!")
-    print("  ✅ Login        — DONE")
-    print("  ✅ Resume Upload — DONE")
-    print("  ✅ Logout        — DONE")
+    print("  ✅ Login         — DONE")
+    print("  ✅ OTP (if any)  — DONE")
+    print("  ✅ Resume Upload  — DONE")
+    print("  ✅ Logout         — DONE")
     print(f"{'='*50}\n")
 
 except Exception as e:
